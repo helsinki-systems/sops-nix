@@ -472,6 +472,19 @@ the service needs a token and a ssh private key to function:
 }
 ```
 
+## Restarting/reloading systemd units
+
+**With NixOS 21.11**, it is possible to restart or reload units when a secret changes or is newly initialized.
+This behaviour can be configured per-secret:
+```nix
+{
+  sops.secrets."home-assistant-secrets.yaml" = {
+    restartUnits = [ "home-assistant.service" ];
+    # there is also reloadUnits which reloads units instead of restarting them
+  };
+}
+```
+
 ## Symlinks to other directories
 
 Some services might expect files in certain locations.
@@ -727,11 +740,6 @@ My [personal configuration](https://github.com/Mic92/dotfiles/tree/master/nixos)
 Each host has a [secrets](https://github.com/Mic92/dotfiles/tree/master/nixos/eve/secrets) directory containing secrets for the host.
 
 ## Known limitations
-
-### Restarting systemd services
-
-Right now systemd services are not restarted automatically.
-We want to implement this in future.
 
 ### Initrd secrets
 

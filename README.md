@@ -330,8 +330,13 @@ In our example we put the following content in it:
 example-key: example-value
 ```
 
-NOTE: At the moment we do not support nested data structures that
-sops support. This might change in the future. See also [Different file formats](#different-file-formats)
+Nesting the key results in the creation of directories.
+These directories will be owned by root:keys and have permissions 0751.
+```yaml
+myservice:
+  my_subdir:
+    my_secret: example value
+```
 
 As a result when saving the file the following content will be in it:
 
@@ -415,6 +420,7 @@ If you derived your server public key from ssh, all you need in your configurati
   # sops.defaultSopsFile = "/root/.sops/secrets.yaml";
   sops.defaultSopsFile = ./secrets.yaml;
   sops.secrets.example-key = {};
+  sops.secrets."myservice/my_subdir/my_secret" = {};
   # This is using ssh keys in the age format:
   sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
   # This is using an age key that is expected to already be in the filesystem

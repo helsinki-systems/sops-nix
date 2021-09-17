@@ -78,6 +78,22 @@ let
           Hash of the sops file, useful in <xref linkend="opt-systemd.services._name_.restartTriggers" />.
         '';
       };
+      restartUnits = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "sshd.service" ];
+        description = ''
+          Names of units that should be restarted when this secret changes.
+        '';
+      };
+      reloadUnits = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "nginx.service" ];
+        description = ''
+          Names of units that should be reloaded when this secret changes.
+        '';
+      };
     };
   });
   manifest = pkgs.writeText "manifest.json" (builtins.toJSON {

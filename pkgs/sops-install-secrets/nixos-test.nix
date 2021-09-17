@@ -118,4 +118,70 @@
    inherit pkgs;
    inherit (pkgs) system;
  };
+
+  restart-and-reload = makeTest {
+    # TODO Migrate to age
+    name = "sops-restart-and-reload";
+    machine = { pkgs, lib, config, ... }: {
+      imports = [
+        ../../modules/sops
+      ];
+
+      sops.gnupgHome = "/run/gpghome";
+      sops.defaultSopsFile = ./test-assets/secrets.yaml;
+      sops.secrets.test_key = {
+        restartUnits = [ "restart-unit.service" ];
+        reloadUnits = [ "reload-unit.service" ];
+      };
+      # must run before sops
+      system.activationScripts.gnupghome = lib.stringAfter [ "etc" ] ''
+        cp -r ${./test-assets/gnupghome} /run/gpghome
+        chmod -R 700 /run/gpghome
+      '';
+
+      systemd.services."restart-unit" = {
+        description = "Restart unit";
+        # not started on boot
+        serviceConfig = {
+          ExecStart = "/bin/sh -c 'echo ok > /restarted'";
+        };
+      };
+      systemd.services."reload-unit" = {
+        description = "Restart unit";
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "/bin/sh -c true";
+          ExecReload = "/bin/sh -c 'echo ok > /reloaded'";
+        };
+      };
+   };
+   testScript = ''
+     machine.wait_for_unit("multi-user.target")
+     machine.fail("test -f /restarted")
+     machine.fail("test -f /reloaded")
+
+     # Nothing is to be restarted after boot
+     machine.fail("ls /run/systemd/sops-*")
+
+     # Nothing happens when the secret is not changed
+     machine.succeed("/run/current-system/bin/switch-to-configuration test")
+     machine.fail("test -f /restarted")
+     machine.fail("test -f /reloaded")
+
+     # Ensure the secret is changed
+     machine.succeed(": > /run/secrets/test_key")
+
+     # The secret is changed, now something should happen
+     machine.succeed("/run/current-system/bin/switch-to-configuration test")
+
+     # Ensure something happened
+     machine.succeed("test -f /restarted")
+     machine.succeed("test -f /reloaded")
+   '';
+  } {
+    inherit pkgs;
+    inherit (pkgs) system;
+  };
 }

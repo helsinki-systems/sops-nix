@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -26,20 +27,20 @@ import (
 )
 
 type secret struct {
-	Name            string     `json:"name"`
-	Key             string     `json:"key"`
-	Path            string     `json:"path"`
-	Owner           string     `json:"owner"`
-	Group           string     `json:"group"`
-	SopsFile        string     `json:"sopsFile"`
-	Format          FormatType `json:"format"`
-	Mode            string     `json:"mode"`
-	RestartServices []string   `json:"restartServices"`
-	ReloadServices  []string   `json:"reloadServices"`
-	value           []byte
-	mode            os.FileMode
-	owner           int
-	group           int
+	Name         string     `json:"name"`
+	Key          string     `json:"key"`
+	Path         string     `json:"path"`
+	Owner        string     `json:"owner"`
+	Group        string     `json:"group"`
+	SopsFile     string     `json:"sopsFile"`
+	Format       FormatType `json:"format"`
+	Mode         string     `json:"mode"`
+	RestartUnits []string   `json:"restartUnits"`
+	ReloadUnits  []string   `json:"reloadUnits"`
+	value        []byte
+	mode         os.FileMode
+	owner        int
+	group        int
 }
 
 type manifest struct {
@@ -548,6 +549,123 @@ func importAgeSSHKeys(keyPaths []string, ageFilePath string) error {
 	return nil
 }
 
+func handleRestart(isDry bool, symlinkPath string, secretDir string, secrets []secret) error {
+	var restart []string
+	var reload []string
+	var newSecrets map[string]bool
+	var modifiedSecrets map[string]bool
+	var removedSecrets map[string]bool
+
+	// When the symlink path does not exist yet, we are being run in stage-2-init.sh
+	// where switch-to-configuration is not run so the services would only be restarted
+	// the next time switch-to-configuration is run.
+	if _, err := os.Stat(symlinkPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	// Find modified/new secrets
+	for _, secret := range secrets {
+		oldPath := filepath.Join(symlinkPath, secret.Name)
+		newPath := filepath.Join(secretDir, secret.Name)
+
+		// Read the old file
+		oldData, err := ioutil.ReadFile(oldPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// File did not exist before
+				restart = append(restart, secret.RestartUnits...)
+				reload = append(reload, secret.ReloadUnits...)
+				newSecrets[secret.Name] = true
+				continue
+			}
+			return err
+		}
+
+		// Read the new file
+		newData, err := ioutil.ReadFile(newPath)
+		if err != nil {
+			return err
+		}
+
+		if !bytes.Equal(oldData, newData) {
+			restart = append(restart, secret.RestartUnits...)
+			reload = append(reload, secret.ReloadUnits...)
+			modifiedSecrets[secret.Name] = true
+		}
+	}
+
+	// Find removed secrets
+	err := filepath.Walk(symlinkPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		for _, secret := range secrets {
+			if secret.Name == path {
+				removedSecrets[secret.Name] = true
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// Write the services to restart/reload
+	writeLines := func(list []string, file string) error {
+		if len(list) != 0 {
+			f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			for _, unit := range list {
+				if _, err = f.WriteString(unit + "\n"); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	var dryPrefix string
+	if isDry {
+		dryPrefix = "/run/nixos/dry-activation"
+	} else {
+		dryPrefix = "/run/nixos/activation"
+	}
+	if err := writeLines(restart, dryPrefix+"-restart-list"); err != nil {
+		return err
+	}
+	if err := writeLines(reload, dryPrefix+"-reload-list"); err != nil {
+		return err
+	}
+
+	// Output new/modified/removed secrets
+	outputChanged := func(changed map[string]bool, regularPrefix, dryPrefix string) {
+		if len(changed) > 0 {
+			if isDry {
+				fmt.Printf("%s secrets: ", dryPrefix)
+			} else {
+				fmt.Printf("%s secrets: ", regularPrefix)
+			}
+			comma := ""
+			for name := range changed {
+				fmt.Printf("%s%s", comma, name)
+				comma = ", "
+			}
+			fmt.Println()
+		}
+	}
+	outputChanged(newSecrets, "adding", "would add")
+	outputChanged(modifiedSecrets, "modifying", "would modify")
+	outputChanged(removedSecrets, "removing", "would remove")
+
+	return nil
+}
+
 type keyring struct {
 	path string
 }
@@ -631,6 +749,8 @@ func installSecrets(args []string) error {
 		return err
 	}
 
+	isDry := os.Getenv("NIXOS_ACTION") == "dry-activate"
+
 	if err := mountSecretFs(manifest.SecretsMountPoint, keysGid); err != nil {
 		return fmt.Errorf("Failed to mount filesystem for secrets: %w", err)
 	}
@@ -664,6 +784,13 @@ func installSecrets(args []string) error {
 	}
 	if err := writeSecrets(*secretDir, manifest.Secrets); err != nil {
 		return fmt.Errorf("Cannot write secrets: %w", err)
+	}
+	if err := handleRestart(isDry, manifest.SymlinkPath, *secretDir, manifest.Secrets); err != nil {
+		return fmt.Errorf("Cannot request units to restart/reload: %w", err)
+	}
+	// No need to perform the actual symlinking
+	if isDry {
+		return nil
 	}
 	if err := symlinkSecrets(manifest.SymlinkPath, manifest.Secrets); err != nil {
 		return fmt.Errorf("Failed to prepare symlinks to secret store: %w", err)

@@ -231,15 +231,15 @@ func TestAge(t *testing.T) {
 	file.Close()
 
 	s := secret{
-		Name:            "test",
-		Key:             "test_key",
-		Owner:           "nobody",
-		Group:           "nogroup",
-		SopsFile:        path.Join(assets, "secrets.yaml"),
-		Path:            target,
-		Mode:            "0400",
-		RestartServices: []string{"affected-service"},
-		ReloadServices:  make([]string, 0),
+		Name:         "test",
+		Key:          "test_key",
+		Owner:        "nobody",
+		Group:        "nogroup",
+		SopsFile:     path.Join(assets, "secrets.yaml"),
+		Path:         target,
+		Mode:         "0400",
+		RestartUnits: []string{"affected-service"},
+		ReloadUnits:  make([]string, 0),
 	}
 
 	m := manifest{
@@ -264,15 +264,15 @@ func TestAgeWithSSH(t *testing.T) {
 	file.Close()
 
 	s := secret{
-		Name:            "test",
-		Key:             "test_key",
-		Owner:           "nobody",
-		Group:           "nogroup",
-		SopsFile:        path.Join(assets, "secrets.yaml"),
-		Path:            target,
-		Mode:            "0400",
-		RestartServices: []string{"affected-service"},
-		ReloadServices:  make([]string, 0),
+		Name:         "test",
+		Key:          "test_key",
+		Owner:        "nobody",
+		Group:        "nogroup",
+		SopsFile:     path.Join(assets, "secrets.yaml"),
+		Path:         target,
+		Mode:         "0400",
+		RestartUnits: []string{"affected-service"},
+		ReloadUnits:  make([]string, 0),
 	}
 
 	m := manifest{
